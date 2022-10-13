@@ -118,6 +118,24 @@ static void printch4(int x, int y, int color, const uint8_t *fnt) {
     }
 }
 
+// print character with font size
+static void printchn(int x, int y, int color, int size, const uint8_t *fnt) {
+    for (int i = 0; i < 6 * size; ++i) {
+        uint8_t *p = frame_buf + (x + i) * DISPLAY_HEIGHT + y;
+        uint8_t mask = 0x01;
+        for (int j = 0; j < 8; ++j) {
+            for (int k = 0; k < size; ++k) {
+                if (*fnt & mask)
+                    *p = color;
+                p++;
+            }
+            mask <<= 1;
+        }
+        if ((i % size) == 0)
+            fnt++;
+    }
+}
+
 // print icon
 static void printicon(int x, int y, int color, const uint8_t *icon) {
     int w = *icon++;
@@ -162,6 +180,55 @@ static void printicon(int x, int y, int color, const uint8_t *icon) {
     }
 }
 
+// print icon size n
+static void printiconn(int x, int y, int color, int size, const uint8_t *icon) {
+    int w = *icon++;
+    int h = *icon++;
+    int sz = *icon++;
+
+    uint8_t mask = 0x80;
+    int runlen = 0;
+    int runbit = 0;
+    uint8_t lastb = 0x00;
+
+    for (int i = 0; i < w; ++i) {
+        uint8_t *p = frame_buf + (x + i * size) * DISPLAY_HEIGHT + y;
+        for (int j = 0; j < h; ++j) {
+            int c = 0;
+            if (mask != 0x80) {
+                if (lastb & mask)
+                    c = 1;
+                mask <<= 1;
+            } else if (runlen) {
+                if (runbit)
+                    c = 1;
+                runlen--;
+            } else {
+                if (sz-- <= 0) {
+                  //TU_LOG1("Screen Panic code = 10");
+                }
+                lastb = *icon++;
+                if (lastb & 0x80) {
+                    runlen = lastb & 63;
+                    runbit = lastb & 0x40;
+                } else {
+                    mask = 0x01;
+                }
+                --j;
+                continue; // restart
+            }
+            if (c) {
+                for(int k = 0; k < size; ++k) {
+                    for(int l = 0; l < size; ++l) {
+                        *(p + k + l * DISPLAY_HEIGHT) = color;
+                    }
+                }
+            }
+            p += size;
+        }
+    }
+}
+
 // print text with font size = 1
 static void print(int x, int y, int col, const char *text) {
     int x0 = x;
@@ -188,6 +255,24 @@ static void print(int x, int y, int col, const char *text) {
         printch(x, y, col, &font8[c * 6]);
         x += 6;
     }
+}
+
+// Print text with font size
+static void printn(int x, int y, int color, int size, const char *text)
+{
+  int char_kerned_width = (5 * size + 1);
+  while ( *text )
+  {
+    char c = *text++;
+    c -= ' ';
+    printchn(x, y, color, size, &font8[c * 6]);
+    x += char_kerned_width;
+    if ( x + char_kerned_width > DISPLAY_WIDTH )
+    {
+      // Next char won't fit.
+      return;
+    }
+  }
 }
 
 // Print text with font size = 4
@@ -243,9 +328,12 @@ void screen_draw_drag (void)
 
   memset(frame_buf, 0, DISPLAY_WIDTH * DISPLAY_HEIGHT);
 
+#define SIZE (DISPLAY_HEIGHT > 200 ? 2 : 1)
+#define DRAG_HEIGHT (DISPLAY_HEIGHT - 52 - 14 * SIZE)
+
   drawBar(0, 52, COLOR_GREEN);
-  drawBar(52, 55, COLOR_BLUE);
-  drawBar(107, 14, COLOR_ORANGE);
+  drawBar(52, DRAG_HEIGHT, COLOR_BLUE);
+  drawBar(DISPLAY_HEIGHT - 14 * SIZE, 14 * SIZE, COLOR_ORANGE);
 
   // Center UF2_PRODUCT_NAME and UF2_VERSION_BASE.
   int name_x = (DISPLAY_WIDTH - CHAR4_KERNED_WIDTH * (int) strlen(DISPLAY_TITLE)) / 2;
@@ -254,16 +342,41 @@ void screen_draw_drag (void)
   int version_x = (DISPLAY_WIDTH - 6 * (int) strlen(UF2_VERSION_BASE)) / 2;
   print(version_x >= 0 ? version_x : 0, 40, COLOR_PURPLE, UF2_VERSION_BASE);
 
-  // TODO the reset should be center as well
-  print(23, 110, 1, "circuitpython.org");
+  const char *CPURL = "circuitpython.org";
+
+  printn(
+    (DISPLAY_WIDTH - 6 * SIZE * (int) strlen(CPURL)) / 2,
+    DISPLAY_HEIGHT - 14 * SIZE + 2,
+    COLOR_WHITE,
+    SIZE,
+    CPURL
+  );
 
 #define DRAG 70
-#define DRAGX 10
-  printicon(DRAGX + 20, DRAG + 5, COLOR_WHITE, fileLogo);
-  printicon(DRAGX + 66, DRAG, COLOR_WHITE, arrowLogo);
-  printicon(DRAGX + 108, DRAG, COLOR_WHITE, pendriveLogo);
-  print(10, DRAG - 12, COLOR_WHITE, "firmware.uf2");
-  print(90, DRAG - 12, COLOR_WHITE, UF2_VOLUME_LABEL);
+
+  const int DRAG_DELTA = 12 * SIZE;
+  const int DRAGY = DRAG + DRAG_DELTA;
+
+  const char *FIRMWARE = "firmware.uf2";
+
+  printn(
+    DISPLAY_WIDTH / 2 - 6 * SIZE * (int) strlen(FIRMWARE) - 12,
+    DRAG - 12,
+    COLOR_WHITE,
+    SIZE,
+    FIRMWARE
+  );
+  printn(
+    DISPLAY_WIDTH / 2 + 12,
+    DRAG - 12,
+    COLOR_WHITE,
+    SIZE,
+    UF2_VOLUME_LABEL
+  );
+
+  printiconn(DISPLAY_WIDTH / 2 - 44 * SIZE, DRAGY + 5, COLOR_WHITE, SIZE, fileLogo);
+  printiconn(DISPLAY_WIDTH / 2 - 12 * SIZE, DRAGY, COLOR_WHITE, SIZE, arrowLogo);
+  printiconn(DISPLAY_WIDTH / 2 + 20 * SIZE, DRAGY, COLOR_WHITE, SIZE, pendriveLogo);
 
   draw_screen();
 
